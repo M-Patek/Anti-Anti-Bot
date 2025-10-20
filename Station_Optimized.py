@@ -190,26 +190,9 @@ def send_message_robust(page: Page, message: str, agent_name: str, session: Sess
         input_box = page.locator(INPUT_SEL)
         send_button_locator = page.locator(SEND_BUTTON_SEL)
         
-        # 步骤1: 模拟人类打字行为 (增强模式)
+        # 步骤1: 直接填充内容，模拟“粘贴”行为
         input_box.click()
-        log("INFO", "开始模拟打字 (增强模式)...", "SEND_ROBUST")
-        for char in message:
-            # Typo simulation
-            if char.lower() in KEYBOARD_ADJACENCY and session.rng.random() < TYPO_PROBABILITY:
-                log("INFO", "Injecting typo...", "INPUT_ILLUSION")
-                typo_char = KEYBOARD_ADJACENCY[char.lower()]
-                input_box.type(typo_char, delay=session.rng.uniform(60, 160))
-                page.wait_for_timeout(session.rng.uniform(100, 300)) # "Realization" pause
-                input_box.press("Backspace")
-                page.wait_for_timeout(session.rng.uniform(80, 220))
-
-            # Type the correct character
-            input_box.type(char, delay=session.rng.uniform(50, 150))
-
-            # Pause simulation
-            if char == ' ' and session.rng.random() < PAUSE_AFTER_SPACE_PROB:
-                page.wait_for_timeout(session.rng.uniform(150, 400)) # Longer pause between some words
-
+        input_box.fill(message)
         log("INFO", "内容已输入。", "SEND_ROBUST")
         
         # 步骤2: 模拟人类反应延迟
@@ -398,10 +381,7 @@ def run_orchestrator(page_A: Page, page_B: Page, initial_session: Session):
                 if TERMINATION_PHRASE in message_A:
                     handle_termination(message_A, session)
                 
-                # --- L3 APE Injection ---
-                humanized_message = _humanize_prompt(message_A, session)
-                
-                count_B_after_send = send_message_robust(page_B, humanized_message, "Agent B", session)
+                count_B_after_send = send_message_robust(page_B, message_A, "Agent B", session)
                 wait_for_response_loop(page_B, count_B_after_send, "Agent B", session)
 
                 message_B, _ = get_latest_message_safe(page_B, "Agent B", session)
