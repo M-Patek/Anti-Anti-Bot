@@ -237,24 +237,16 @@ def run_orchestrator(page_A: Page, page_B: Page, initial_session: Session):
             page_A.bring_to_front()
             wait_for_page_stability(page_A, "Agent A")
             
-            start_new_task = False
+            # 【LOGIC SIMPLIFICATION】移除“智能重启”，改为更简单的逻辑
             if not page_A.locator(MESSAGE_ANCHOR_SEL).count():
-                start_new_task = True
-                log("INFO", "场景1: A页面空白，判定为新任务。", "场景处理")
-            else:
-                last_message_on_A = get_latest_message_safe(page_A, "Agent A (状态检查)")
-                if TERMINATION_PHRASE in last_message_on_A:
-                    start_new_task = True
-                    log("INFO", "场景2: 检测到上次任务已完成，判定为新任务。", "场景处理")
-                else:
-                    log("INFO", "场景3: 检测到未完成的对话，继续执行...", "场景处理")
-
-            if start_new_task:
-                log("INFO", "发送新任务启动指令...", "场景处理")
+                log("INFO", "场景1: A页面空白，发送启动指令...", "场景处理")
                 send_message_robust(page_A, START_CMD_MSG, "Agent A", session)
                 snapshot_html = page_A.locator(CHAT_AREA_SEL).evaluate("el => el.innerHTML")
                 snapshot_count = page_A.locator(MESSAGE_ANCHOR_SEL).count()
                 wait_for_full_response(page_A, "Agent A", snapshot_html, snapshot_count)
+            else:
+                log("INFO", "场景2: 检测到已有对话，直接进入协作循环。", "场景处理")
+
 
             log("INFO", "状态同步完成。进入主协作循环。", "场景处理")
             while True:
@@ -334,3 +326,4 @@ if __name__ == '__main__':
     finally:
         log("INFO", "脚本执行结束。", "关闭")
         input("按回车键关闭浏览器...")
+
