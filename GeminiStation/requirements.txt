@@ -3,3 +3,4 @@
 您可以使用 "pip install -r requirements.txt" 来安装它们
 
 playwright
+PySide6
