@@ -1,10 +1,12 @@
 """
-核心动作库 (core_actions.py)
+核心动作库 (core_actions.py) (v9.3 - 最终集成版)
 
 职责:
 - 封装所有与浏览器交互的 "原子" 操作 (如点击、输入、等待)。
 - 封装会话状态 (Session) 管理。
-- 提供统一的日志记录 (log) 功能。
+- (v9.3) 重构 log 函数，使其通过 app_context 发出信号，而不是 print。
+- (v9.3) 重构 Session，使其在初始化时发出信号。
+- (v9.3) 包含 L2 恢复 (send_message_robust) 和 L1 人格 (微操作)。
 - 不关心业务逻辑，只负责 "如何执行"。
 """
 
@@ -13,17 +15,25 @@ import sys
 import random as global_random
 from playwright.sync_api import Page, TimeoutError as PlaywrightTimeoutError, expect, Locator
 
-# 从其他模块导入依赖
-import config # 导入配置
+# 导入配置和全局信号中心
+import config
+from app_context import context
 
 # =======================================================================================
 # I. 日志与会话管理 (Log & Session)
 # =======================================================================================
 
 def log(level: str, message: str, step: str = "协调器"):
-    """统一的日志输出函数"""
+    """
+    (v9.3) 统一的日志输出函数。
+    现在通过 app_context 发射信号，而不是打印到控制台。
+    我们将 "step" 参数用作 "level" (用于颜色编码)。
+    """
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{timestamp}][{level:<7}][{step:<15}] {message}")
+    formatted_message = f"[{timestamp}][{level:<7}][{step:<15}] {message}"
+    
+    # 使用 step 作为 GUI 中的颜色分类器
+    context.emit_log(formatted_message, step)
 
 class Session:
     """封装会话状态和人格化参数。"""
@@ -31,15 +41,22 @@ class Session:
         self.session_seed = seed
         self.rng = global_random.Random(seed)
         self.task_lock = False
-        # 定义不同的人格化行为参数
-        personas = {
-            'new_user': {'P_IDLE_TRIGGER': 0.30},
-            'experienced_user': {'P_IDLE_TRIGGER': 0.15}
+        
+        # v9.3: 统一专家人格
+        self.behavioral_params = {
+            'P_THINKING_DELAY': 0.25, # 触发“思考延迟”的概率
+            'P_MICRO_ACTION': 0.15,   # 等待时触发“微操作”的概率
+            'MIN_THINK_DELAY_S': 2,   # 思考延迟最小秒数
+            'MAX_THINK_DELAY_S': 7    # 思考延迟最大秒数
         }
-        self.persona_name = self.rng.choice(list(personas.keys()))
-        self.behavioral_params = personas[self.persona_name]
-        log("INFO", f"会话已初始化，种子: {self.session_seed}", "会话")
-        log("INFO", f"L1人格已分配: '{self.persona_name}'", "L1人格")
+        
+        log_msg = f"会话已初始化，种子: {self.session_seed}"
+        log("INFO", log_msg, "会话")
+        context.emit_session(str(self.session_seed)) # 向 GUI 更新 Session ID
+        
+        log_msg_2 = "L1人格已分配: '统一专家人格'"
+        log("INFO", log_msg_2, "L1人格")
+        context.emit_status("会话已初始化") # 向 GUI 更新状态
 
 # =======================================================================================
 # II. 页面等待函数 (Wait Functions)
@@ -85,20 +102,21 @@ def wait_for_initial_change(page: Page, previous_html: str, previous_anchor_coun
         log("WARNING", f"等待初步响应超时。", "初步响应确认")
         return False # 表示未检测到变化
 
-def wait_for_ai_response(page: Page, agent_name: str, previous_html: str, previous_anchor_count: int):
+def wait_for_ai_response(page: Page, agent_name: str, previous_html: str, previous_anchor_count: int, session: Session):
     """
-    (v9.2) 升级后的AI响应等待函数，兼容Pro模式。
+    (v9.3) 升级后的AI响应等待函数，兼容Pro模式，注入微操作。
     执行四重确认：初步响应 -> 检测思考动画 -> 等待动画消失 -> 等待内容稳定。
     """
-    log("INFO", f"开始等待 {agent_name} 的AI响应 (Pro模式兼容)...", "AI响应感知")
+    log_step = f"AI响应感知 ({agent_name})"
+    log("INFO", f"开始等待 {agent_name} 的AI响应 (Pro模式兼容)...", log_step)
     
     # 第一重确认：等待任何形式的响应（思考动画或直接答案）
     if not wait_for_initial_change(page, previous_html, previous_anchor_count):
         # 如果连初步响应都没有，可能出错了
-        log("ERROR", "未检测到初步响应，AI可能未回复。")
+        log("ERROR", "未检测到初步响应，AI可能未回复。", log_step)
         raise Exception(f"{agent_name} 未在指定时间内响应。")
 
-    log("INFO", f"检测到初步响应，开始第二重确认...", "AI响应感知")
+    log("INFO", f"检测到初步响应，开始第二重确认...", log_step)
 
     # 第二重确认：检查是否存在“思考中”动画 (更鲁棒的方式)
     thinking_indicators = page.locator(config.THINKING_INDICATOR_SEL)
@@ -109,27 +127,27 @@ def wait_for_ai_response(page: Page, agent_name: str, previous_html: str, previo
 
     # 第三重确认：等待所有“思考中”动画消失
     if indicators_to_wait_for.count() > 0:
-        log("INFO", f"检测到 {indicators_to_wait_for.count()} 个“思考/加载中”指示器，等待其完成...", "AI响应感知")
+        log("INFO", f"检测到 {indicators_to_wait_for.count()} 个“思考/加载中”指示器，等待其完成...", log_step)
         try:
             # 遍历所有找到的指示器，等待它们全部消失
             for i in range(indicators_to_wait_for.count()):
                  expect(indicators_to_wait_for.nth(i)).to_be_hidden(timeout=config.Config.Timeouts.AI_GENERATION_MS)
-            log("SUCCESS", f"所有“思考/加载中”指示器已结束。", "AI响应感知")
+            log("SUCCESS", f"所有“思考/加载中”指示器已结束。", log_step)
         except PlaywrightTimeoutError:
-            log("WARNING", f"等待部分“思考/加载中”指示器消失超时，可能已出结果。", "AI响应感知")
+            log("WARNING", f"等待部分“思考/加载中”指示器消失超时，可能已出结果。", log_step)
         except Exception as e:
             # 捕获可能的 StaleElementReferenceError 等错误
-             log("WARNING", f"等待指示器消失时遇到错误: {e}，继续执行。", "AI响应感知")
+             log("WARNING", f"等待指示器消失时遇到错误: {e}，继续执行。", log_step)
     
     # 第四重确认：进入稳定观察期，确保所有文本都已输出
-    log("INFO", f"进入最终内容稳定观察期...", "AI响应感知")
+    log("INFO", f"进入最终内容稳定观察期...", log_step)
     last_len = 0
     try:
         current_len = page.locator(config.CHAT_AREA_SEL).evaluate("el => el.innerHTML.length")
         page.wait_for_timeout(500) # 初始延迟
         current_len = page.locator(config.CHAT_AREA_SEL).evaluate("el => el.innerHTML.length")
     except Exception as e:
-        log("WARNING", f"在稳定期检查时页面元素失效: {e}，假定已稳定。", "AI响应感知")
+        log("WARNING", f"在稳定期检查时页面元素失效: {e}，假定已稳定。", log_step)
         return # 页面可能已跳转或重载，直接返回
 
     stability_start_time = time.time()
@@ -137,17 +155,21 @@ def wait_for_ai_response(page: Page, agent_name: str, previous_html: str, previo
         last_len = current_len
         page.wait_for_timeout(config.Config.Timeouts.CONTENT_STABILITY_MS)
         try:
+            # v9.3: 注入微操作
+            if session.rng.random() < session.behavioral_params['P_MICRO_ACTION']:
+                _perform_micro_scroll(page, session)
+
             current_len = page.locator(config.CHAT_AREA_SEL).evaluate("el => el.innerHTML.length")
         except Exception as e:
-            log("WARNING", f"在稳定期检查时页面元素失效: {e}，强制认为已稳定。", "AI响应感知")
+            log("WARNING", f"在稳定期检查时页面元素失效: {e}，强制认为已稳定。", log_step)
             break # 页面可能已跳转或重载，跳出循环
         
         # 增加一个总的稳定观察期超时，防止无限等待
         if time.time() - stability_start_time > config.Config.Timeouts.WAIT_FOR_CHANGE_MS:
-             log("WARNING", "稳定观察期超时，强制认为内容已稳定。")
+             log("WARNING", "稳定观察期超时，强制认为内容已稳定。", log_step)
              break
     
-    log("SUCCESS", f"内容已稳定，{agent_name} 已完成完整输出。", "AI响应感知")
+    log("SUCCESS", f"内容已稳定，{agent_name} 已完成完整输出。", log_step)
 
 # =======================================================================================
 # III. 模拟人类行为函数 (Human-like Actions)
@@ -164,14 +186,15 @@ def _calculate_bezier_point(t: float, p0: dict, p1: dict, p2: dict) -> dict:
 
 def _move_mouse_human_like(page: Page, target_locator: Locator, session: Session):
     """模拟类人的贝塞尔曲线鼠标移动"""
-    log("INFO", "模拟类人鼠标移动...", "鼠标移动")
+    log_step = "L1人格"
+    log("INFO", "模拟类人鼠标移动...", log_step)
     try:
         viewport_size = page.viewport_size
         start_point = {'x': session.rng.randint(0, viewport_size['width'] if viewport_size else 100), 'y': session.rng.randint(0, viewport_size['height'] if viewport_size else 100)}
         
         target_box = target_locator.bounding_box()
         if not target_box:
-            log("WARNING", "无法获取鼠标移动目标元素的边界框。", "鼠标移动")
+            log("WARNING", "无法获取鼠标移动目标元素的边界框。", log_step)
             return
             
         end_point = {'x': target_box['x'] + target_box['width'] / 2, 'y': target_box['y'] + target_box['height'] / 2}
@@ -187,8 +210,22 @@ def _move_mouse_human_like(page: Page, target_locator: Locator, session: Session
             page.mouse.move(point['x'], point['y'])
             page.wait_for_timeout(session.rng.uniform(5, 25))
     except Exception as e:
-        log("WARNING", f"类人鼠标移动失败: {e}", "鼠标移动")
+        log("WARNING", f"类人鼠标移动失败: {e}", log_step)
         # 即使失败，也继续尝试点击，不阻塞主流程
+
+def _perform_micro_scroll(page: Page, session: Session):
+    """v9.3: 模拟等待时的微操作（随机滚动）"""
+    log_step = "L1人格"
+    try:
+        scroll_amount = session.rng.randint(-150, 150)
+        if scroll_amount == 0: return
+        
+        log("INFO", f"模拟微操作：滚动 {scroll_amount}px", log_step)
+        page.mouse.wheel(0, scroll_amount)
+        page.wait_for_timeout(session.rng.uniform(100, 400))
+    except Exception as e:
+        log("WARNING", f"微操作（滚动）失败: {e}", log_step)
+
 
 # =======================================================================================
 # IV. 核心交互函数 (Core IO)
@@ -196,21 +233,25 @@ def _move_mouse_human_like(page: Page, target_locator: Locator, session: Session
 
 def handle_termination(final_message: str):
     """处理终止信号"""
-    log("SUCCESS", "检测到终止信号。任务完成。", "任务终止")
-    log("INFO", f"Agent A 的最终交付内容:\n---\n{final_message}\n---", "任务终止")
+    log_step = "任务终止"
+    log("SUCCESS", "检测到终止信号。任务完成。", log_step)
+    log("INFO", f"Agent A 的最终交付内容:\n---\n{final_message}\n---", log_step)
+    context.emit_status("任务完成")
     # 在工程化结构中，我们不在此处退出，而是让主循环自然结束
     # sys.exit(0) 
 
 def send_message_robust(page: Page, message: str, agent_name: str, session: Session):
     """
-    (v9.2) 鲁棒的消息发送函数。
+    (v9.3) 鲁棒的消息发送函数 (L2 恢复)。
     负责填充、模拟鼠标移动、点击，并等待用户消息上屏。
     """
+    log_step = f"发送消息 ({agent_name})"
+    
     if not message or not message.strip():
-        log("WARNING", f"尝试向 {agent_name} 发送空消息，已跳过。", "发送消息")
+        log("WARNING", f"尝试向 {agent_name} 发送空消息，已跳过。", log_step)
         return
         
-    log("INFO", f"向 {agent_name} 发送消息 (长度: {len(message)})...", "发送消息")
+    log("INFO", f"向 {agent_name} 发送消息 (长度: {len(message)})...", log_step)
     try:
         session.task_lock = True
         log("INFO", "已获取任务锁。", "L4锁")
@@ -219,14 +260,14 @@ def send_message_robust(page: Page, message: str, agent_name: str, session: Sess
         # 拍摄快照，用于后续对比
         snapshot_html = page.locator(config.CHAT_AREA_SEL).evaluate("el => el.innerHTML")
         snapshot_count = page.locator(config.MESSAGE_ANCHOR_SEL).count()
-        log("INFO", f"发送前快照(DOM长度: {len(snapshot_html)}, 锚点数: {snapshot_count})", "发送消息")
+        log("INFO", f"发送前快照(DOM长度: {len(snapshot_html)}, 锚点数: {snapshot_count})", log_step)
 
         input_box = page.locator(config.INPUT_SEL)
         send_button_locator = page.locator(config.SEND_BUTTON_SEL)
         
         # 动作分离
         input_box.fill(message)
-        log("INFO", "消息内容已填充。", "发送消息")
+        log("INFO", "消息内容已填充。", log_step)
         page.wait_for_timeout(session.rng.uniform(300, 700))
         
         _move_mouse_human_like(page, send_button_locator, session)
@@ -234,12 +275,23 @@ def send_message_robust(page: Page, message: str, agent_name: str, session: Sess
         page.wait_for_timeout(session.rng.uniform(100, 300))
         send_button_locator.click()
 
-        # 【LOGIC SEPARATION】只等待用户自己的消息上屏，然后立刻返回
-        wait_for_initial_change(page, snapshot_html, snapshot_count)
-        log("SUCCESS", "用户发送的消息已确认上屏！", "发送消息")
+        # 【LOGIC SEPARATION】+【L2 恢复】
+        if wait_for_initial_change(page, snapshot_html, snapshot_count):
+            log("SUCCESS", "用户发送的消息已确认上屏！ (Attempt 1)", log_step)
+        else:
+            # L2 恢复机制
+            log_step_l2 = "L2恢复"
+            log("WARNING", "初步上屏确认失败。触发 L2 恢复...", log_step_l2)
+            log("INFO", "L2 恢复: 重新点击发送按钮。", log_step_l2)
+            send_button_locator.click() # 再次点击
+            
+            if not wait_for_initial_change(page, snapshot_html, snapshot_count):
+                log("ERROR", "L2 恢复失败，消息仍未上屏。", log_step_l2)
+                raise Exception(f"{agent_name} 消息发送失败，L2 恢复无效。")
+            log("SUCCESS", "用户发送的消息已确认上屏！ (L2 恢复成功)", log_step_l2)
 
     except Exception as e:
-        log("FATAL", f"向 {agent_name} 发送消息时发生严重错误: {e}", "发送消息")
+        log("FATAL", f"向 {agent_name} 发送消息时发生严重错误: {e}", log_step)
         raise # 抛出异常，由编排器 (orchestrator) 捕获
     finally:
         session.task_lock = False
@@ -251,7 +303,8 @@ def get_latest_message_safe(page: Page, agent_name: str) -> str:
     (v9.2) “次元切割”高权限提取脚本。
     使用 JS 优先提取最后一条消息的 Markdown 内容，并清除噪音。
     """
-    log("INFO", f"为 {agent_name} 执行“次元切割”高权限提取脚本...", "提取消息")
+    log_step = f"提取消息 ({agent_name})"
+    log("INFO", f"为 {agent_name} 执行“次元切割”高权限提取脚本...", log_step)
     try:
         js_get_last_message_script = f"""
             () => {{
@@ -282,7 +335,7 @@ def get_latest_message_safe(page: Page, agent_name: str) -> str:
 
         # JS 提取失败的备用方案 (Fallback)
         if not message_text:
-            log("WARNING", "高权限提取脚本未能找到任何有效消息内容。使用备用方案...", "提取消息")
+            log("WARNING", "高权限提取脚本未能找到任何有效消息内容。使用备用方案...", log_step)
             last_container = page.locator(config.MESSAGE_ANCHOR_SEL).last
             if last_container.count() > 0:
                 full_text = last_container.inner_text().strip()
@@ -292,9 +345,10 @@ def get_latest_message_safe(page: Page, agent_name: str) -> str:
                     full_text = full_text.replace(btn_txt, "")
                 message_text = full_text.strip()
 
-        log("SUCCESS", f"成功从 {agent_name} 提取到消息 (长度: {len(message_text)})", "提取消息")
+        log("SUCCESS", f"成功从 {agent_name} 提取到消息 (长度: {len(message_text)})", log_step)
         return message_text
 
     except Exception as e:
-        log("FATAL", f"无法从 {agent_name} 提取最新消息: {e}", "提取消息")
+        log("FATAL", f"无法从 {agent_name} 提取最新消息: {e}", log_step)
         raise # 抛出异常，由编排器 (orchestrator) 捕获
+
