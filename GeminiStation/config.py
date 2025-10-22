@@ -54,3 +54,4 @@ class Config:
         WAIT_FOR_CHANGE_MS = 180000 # 内容稳定观察期的总超时
         CONTENT_STABILITY_MS = 1500 # 内容稳定观察期的检查间隔
         MANUAL_SETUP_SEC = 30      # 手动设置时间 (秒)
+
