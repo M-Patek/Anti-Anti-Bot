@@ -51,8 +51,8 @@ pip install -r requirements.txt
 
 项目采用清晰的分层架构，以保证鲁棒性和可维护性：
 
-- **前端 GUI (`main.py`)**：负责显示，运行在主线程，避免阻塞。
-- **后端工作器 (`backend_worker.py`)**：继承自 `QObject`，在单独的 `QThread` 中运行，负责启动 Playwright 实例和浏览器会话。
-- **核心编排 (`orchestrator.py`)**：包含 Agent 协作的业务逻辑、状态机和 L4 恢复机制。
-- **核心动作库 (`core_actions.py`)**：包含所有低级、高鲁棒性的浏览器交互函数（如发送消息、等待响应）和反检测逻辑（如 L1 人格、L2 恢复）。
-- **配置与通信 (`config.py`, `app_context.py`)**：存放全局配置、CSS 选择器和信号中心。
+- * **前端 GUI (`main.py`)**：负责显示，运行在主线程，避免阻塞。
+- * **后端工作器 (`backend_worker.py`)**：继承自 `QObject`，在单独的 `QThread` 中运行，负责启动 Playwright 实例和浏览器会话。
+- * **核心编排 (`orchestrator.py`)**：包含 Agent 协作的业务逻辑、状态机和 L4 恢复机制。
+- * **核心动作库 (`core_actions.py`)**：包含所有低级、高鲁棒性的浏览器交互函数（如发送消息、等待响应）和反检测逻辑（如 L1 人格、L2 恢复）。
+- * **配置与通信 (`config.py`, `app_context.py`)**：存放全局配置、CSS 选择器和信号中心。
