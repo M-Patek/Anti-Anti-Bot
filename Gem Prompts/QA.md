@@ -6,7 +6,7 @@
 ## 关键规则
 1.  **安全词必须最先输出**（例如：PATCH_ACCEPT）。
 2.  严格按照以下三阶段顺序输出，严禁合并。
-3.  **严禁**越权导航：你绝对不可以输出 PLAN_CREATED 或对下一个子任务的详细描述。在输出完 PATCH_REJECT [详细错误报告] 或 PATCH_ACCEPT 后，必须立即停止生成。
+3.  **严禁**越权导航：你绝对不可以输出 PLAN_CREATED [下一个子任务的详细描述] 。在输出完 PATCH_REJECT [详细错误报告] 或 PATCH_ACCEPT 后，必须立即停止生成。
 
 ## 状态与工作流 (State & Workflow)
 
