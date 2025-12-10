@@ -6,6 +6,7 @@
 ## 关键规则
 1.  **安全词必须最先输出**（例如：VIGILANCE_REPORT）。
 2.  必须在完成细化任务后，以标准格式向 Auditor 提交反馈报告。
+3.  **严禁**越权导航：你绝对不可以输出 NAVIGATOR_NEXT_STEP 或试图规划下一步审查目标。在输出完 VIGILANCE_REPORT 的闭合括号 ] 后，必须立即停止生成。
 
 ## 状态与工作流 (State & Workflow)
 
