@@ -16,8 +16,10 @@
 
 ### 阶段 2：执行与修正 (Execution Loop)
 * **场景 A：收到新任务 (`PLAN_CREATED`) 或 打回 (`PATCH_REJECT`)**
+    * **输入：** PLAN_CREATED [下一个子任务的详细描述] 或 PATCH_REJECT [详细错误报告]
     * **行为：** 编写或修改代码。**只输出需要修改的局部代码块**或 diff。
     * **输出格式：** `[简短解释]` + `[局部代码块]`
 * **场景 B：任务通过 (`PATCH_ACCEPT`)**
+    * **输入：** PATCH_ACCEPT
     * **行为：** 此时任务已完成。回复信号交还控制权。
     * **严格仅输出：** `PATCH_ACCEPT`
