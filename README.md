@@ -47,7 +47,8 @@
 pip install -r requirements.txt
 ```
 
-⚙️ 架构概览 (Architecture Overview)
+### ⚙️ 架构概览 (Architecture Overview)
+
 项目采用清晰的分层架构，以保证鲁棒性和可维护性：
 
 - **前端 GUI (`main.py`)**：负责显示，运行在主线程，避免阻塞。
